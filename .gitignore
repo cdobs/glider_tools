@@ -1,2 +1,7 @@
 sst_image_processing/tmp/*
-
+optode_salinity_setting_analysis/cache/*
+optode_salinity_setting_analysis/input/*
+optode_salinity_setting_analysis/output/*
+optode_salinity_setting_analysis/config/*
+optode_salinity_setting_analysis/__pycache__/*
+optode_salinity_setting_analysis/dbd2netcdf/
