@@ -7,3 +7,5 @@ optode_salinity_setting_analysis/__pycache__/*
 optode_salinity_setting_analysis/dbd2netcdf/
 battery_stats/output/*
 battery_stats/.ipynb*/*
+forecast_model_queries/output/*
+forecast_model_queries/__pycache__/*
