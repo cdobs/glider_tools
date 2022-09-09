@@ -5,3 +5,5 @@ optode_salinity_setting_analysis/output/*
 optode_salinity_setting_analysis/config/*
 optode_salinity_setting_analysis/__pycache__/*
 optode_salinity_setting_analysis/dbd2netcdf/
+battery_stats/output/*
+battery_stats/.ipynb*/*
