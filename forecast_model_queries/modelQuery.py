@@ -48,7 +48,6 @@ plotSecondaryTitle = 'Model Run: '+dayOfRun+"T"+modelRun+"0000Z"
 cBarLabel = 'Wave height (m)'
 
 #############################################################################################
-######################### BELOW IS WHERE THE ACTUAL WORK IS DONE ############################
 # Pull the location and time data from the model
 lat = pull_data(nomadsURL, 'lat')[:]
 lon = pull_data(nomadsURL, 'lon')[:]
