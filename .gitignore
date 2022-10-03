@@ -9,3 +9,5 @@ battery_stats/output/*
 battery_stats/.ipynb*/*
 forecast_model_queries/output/*
 forecast_model_queries/__pycache__/*
+metadata_mining/input/*
+metadata_mining/output/*
