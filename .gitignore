@@ -1,3 +1,5 @@
+sst_image_processing/ds_logs/*
+sst_image_processing/images/*
 sst_image_processing/tmp/*
 optode_salinity_setting_analysis/cache/*
 optode_salinity_setting_analysis/input/*

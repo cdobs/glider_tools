@@ -28,7 +28,7 @@ sst_image_type = 'composite'
 num_days = 10
 
 # local directory for processing
-local_dir = "/home/ooiuser/sst/tmp/"
+local_dir = "/home/ooiuser/glider_tools/sst_image_processing/"
 image_dir = os.path.join(local_dir, "images")
 
 # Remote directories
