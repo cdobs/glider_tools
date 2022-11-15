@@ -409,7 +409,7 @@ def main(argv=None):
             file_urls = get_file_urls(full_url)
             for url in file_urls:
                 if url.split("/")[-1] not in '\t'.join(local_existing_files):
-                    download_file(full_url, url, local_dir, "yo")
+                    download_file(full_url, url, local_dir)
 
             # Parse the files
             local_files = glob.glob(local_dir+"/*.ma")
@@ -446,6 +446,40 @@ def main(argv=None):
             df = df.sort_values('Datetime')
             csv_name = save_dir+"/output/"+glider_name+"/D"+str(deployment_number).zfill(5)+"/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ma_file_extractions.csv"
             df.to_csv(csv_name, index=False)
+
+            # Get the glider deployment info and line
+            deploy_csv = save_dir + "input/"+glider_name+"/"+glider_name+"_Deploy.csv"
+            deploy_info = pd.read_csv(deploy_csv)
+            this_deployment = deploy_info.loc[(deploy_info["deploymentNumber"] == deployment_number)]
+
+            deploy_csv_start_date = max(this_deployment['startDateTime'])
+            deploy_start_datetime = datetime.datetime.strptime(deploy_csv_start_date, "%Y-%m-%dT%H:%M:%S")
+            deploy_start_datetime = deploy_start_datetime.replace(tzinfo=timezone.utc).timestamp()
+
+            deploy_csv_end_date = max(this_deployment['stopDateTime'])
+
+            if pd.isnull(deploy_csv_end_date):
+                deploy_end_datetime = datetime.datetime.now().timestamp()
+            else:
+                deploy_end_datetime = datetime.datetime.strptime(deploy_csv_end_date, "%Y-%m-%dT%H:%M:%S")
+                deploy_end_datetime = deploy_end_datetime.replace(tzinfo=timezone.utc).timestamp()
+
+            deployment_duration = (deploy_end_datetime - deploy_start_datetime)/60/60/24
+            line = this_deployment["notes"].mode()[0].split(",")[0]
+
+            ma_files_line_csv = save_dir+line+"_ma_files_count.csv"
+            if not (os.path.isfile(ma_files_line_csv)):
+                ma_df = pd.DataFrame()
+            else:
+                ma_df = pd.read_csv(ma_files_line_csv)
+            
+            num_files = len(local_files) 
+            temp_df = pd.DataFrame({'Glider': [glider_name], 'Deployment': [deployment_number], 'Line': [line], 'Deployment_Duration': [deployment_duration], 'Number_of_Files': [num_files]})
+
+            ma_df = ma_df.append(temp_df)
+
+            ma_df.to_csv(ma_files_line_csv, index=False)
+
 
         # Dockserver log file processing below
     elif file_type.lower() == "ds":
@@ -510,7 +544,7 @@ def main(argv=None):
 
             # Determine which values should be extracted from each DS log file
             ds_values_to_extract = ["c_wpt_lat", "c_wpt_lon",
-            "GPS Location:", "m_tot_horz_dist"]
+            "GPS Location:", "m_tot_horz_dist", "m_water_vx", 'm_water_vy']
 
            # ds_values_to_extract = ["c_wpt_lat"]
 
@@ -585,441 +619,442 @@ def main(argv=None):
             bounds = []
             distances = []
 
-            if "FZ" in line:
-                FZ_box = np.array([[39.833, 70.375], # SE corner
-                    [40.083, 70.375], # NE corner
-                    [40.083, 71.167], # NW corner
-                    [39.833, 71.167]]) # SW corner
-                distances_to_SE = []
-                distances_to_NE = []
-                distances_to_NW = []
-                distances_to_SW = []
-                SE_flags = []
-                NE_flags = []
-                NW_flags = []
-                SW_flags = []
+            # if "FZ" in line:
+            #     FZ_box = np.array([[39.833, 70.375], # SE corner
+            #         [40.083, 70.375], # NE corner
+            #         [40.083, 71.167], # NW corner
+            #         [39.833, 71.167]]) # SW corner
+            #     distances_to_SE = []
+            #     distances_to_NE = []
+            #     distances_to_NW = []
+            #     distances_to_SW = []
+            #     SE_flags = []
+            #     NE_flags = []
+            #     NW_flags = []
+            #     SW_flags = []
 
-            if "EB" in line:
-                EB_line = np.array([[39.833, 70.000], # SE corner
-                                    [39.967,70.000], # mid-E
-                                    [40.400, 70.000], # far-N wpt
-                                    [40.083, 70.190], # W corner on shelf
-                                    [39.967, 70.190], # mid-W
-                                    [39.833, 70.190] # SW corner
-                                    ])
-                distances_to_SE = []
-                distances_to_mid_E = []
-                distances_to_N = []
-                distances_to_W = []
-                distances_to_mid_W = []
-                distances_to_SW = []
-                SE_flags = []
-                mid_E_flags = []
-                N_flags = []
-                W_flags = []
-                mid_W_flags = []
-                SW_flags = []
-
-
-            if "SS-1" in line:
-                SS1_line = np.array([[39.333, 70.000], # SE wpt
-                                    [39.833, 70.000], # NE wpt
-                                    [39.333, 70.583],  # S-mid wpt
-                                    [39.833, 71.167], # NW wpt
-                                    [39.333, 71.167], # SW wpt
-                                    [39.833, 70.583] # N-mid wpt
-                                    ])
-                distances_to_SE = []
-                distances_to_NE = []
-                distances_to_S_mid = []
-                distances_to_NW = []
-                distances_to_SW = []
-                distances_to_N_mid = []
-                SE_flags = []
-                NE_flags = []
-                S_mid_flags = []
-                NW_flags = []
-                SW_flags = []
-                N_mid_flags = []
+            # if "EB" in line:
+            #     EB_line = np.array([[39.833, 70.000], # SE corner
+            #                         [39.967,70.000], # mid-E
+            #                         [40.400, 70.000], # far-N wpt
+            #                         [40.083, 70.190], # W corner on shelf
+            #                         [39.967, 70.190], # mid-W
+            #                         [39.833, 70.190] # SW corner
+            #                         ])
+            #     distances_to_SE = []
+            #     distances_to_mid_E = []
+            #     distances_to_N = []
+            #     distances_to_W = []
+            #     distances_to_mid_W = []
+            #     distances_to_SW = []
+            #     SE_flags = []
+            #     mid_E_flags = []
+            #     N_flags = []
+            #     W_flags = []
+            #     mid_W_flags = []
+            #     SW_flags = []
 
 
-
-            if "SS-2" in line:
-                SS2_line = np.array([[39.333, 70.292], # SE point
-                                    [39.583, 70.000], # mid-E wpt
-                                    [39.833, 70.292], # NE wpt
-                                    [39.333, 70.875], # SW wpt
-                                    [39.583, 71.167], # mid-W wpt
-                                    [39.833, 70.875], # NW wpt
-                                    ])
-                distances_to_SE = []
-                distances_to_mid_E = []
-                distances_to_NE = []
-                distances_to_SW = []
-                distances_to_mid_W = []
-                distances_to_NW = []
-                SE_flags = []
-                mid_E_flags = []
-                NE_flags = []
-                SW_flags = []
-                mid_W_flags = []
-                NW_flags = []
-
-
-            decimal_gps_lats = []
-            decimal_gps_lons = []
-            decimal_wpt_lats = []
-            decimal_wpt_lons = []
-
-            for index, row in df.iterrows():
-                gps_lat = row['GPS_Lat']
-                gps_lon = row['GPS_Lon']
-                wpt_lat = row['WPT_Lat']
-                wpt_lon = row['WPT_Lon']
-
-                #
-                if wpt_lat == -1:
-                    decimal_wpt_lat = -1
-                    distance = "n/a"
-                else:
-                    decimal_wpt_lat = parse_wpt_lat(wpt_lat)
-                decimal_wpt_lats.append(decimal_wpt_lat)
+            # if "SS-1" in line:
+            #     SS1_line = np.array([[39.333, 70.000], # SE wpt
+            #                         [39.833, 70.000], # NE wpt
+            #                         [39.333, 70.583],  # S-mid wpt
+            #                         [39.833, 71.167], # NW wpt
+            #                         [39.333, 71.167], # SW wpt
+            #                         [39.833, 70.583] # N-mid wpt
+            #                         ])
+            #     distances_to_SE = []
+            #     distances_to_NE = []
+            #     distances_to_S_mid = []
+            #     distances_to_NW = []
+            #     distances_to_SW = []
+            #     distances_to_N_mid = []
+            #     SE_flags = []
+            #     NE_flags = []
+            #     S_mid_flags = []
+            #     NW_flags = []
+            #     SW_flags = []
+            #     N_mid_flags = []
 
 
-                #
-                if wpt_lon == -1:
-                    decimal_wpt_lon = -1
-                    distance = "n/a"
-                else:
-                    decimal_wpt_lon = parse_wpt_lon(wpt_lon)
-                decimal_wpt_lons.append(decimal_wpt_lon)
 
-                #
-                if gps_lat == -1:
-                    decimal_gps_lat = -1
-                else:
-                    decimal_gps_lat = parse_gps_lat(gps_lat)
-                decimal_gps_lats.append(decimal_gps_lat)
-
-                #
-                if gps_lon == -1:
-                    decimal_gps_lon = -1
-                else:
-                    decimal_gps_lon = parse_gps_lon(gps_lon)
-                decimal_gps_lons.append(decimal_gps_lon)
-
-
-                if decimal_gps_lat == -1 or decimal_gps_lon == -1 or decimal_wpt_lat == -1 or decimal_wpt_lon == -1:
-                    distance = -1
-                else:
-                    distance = calculate_distance_from_waypoint(decimal_gps_lat, decimal_gps_lon, decimal_wpt_lat, decimal_wpt_lon)
+            # if "SS-2" in line:
+            #     SS2_line = np.array([[39.333, 70.292], # SE point
+            #                         [39.583, 70.000], # mid-E wpt
+            #                         [39.833, 70.292], # NE wpt
+            #                         [39.333, 70.875], # SW wpt
+            #                         [39.583, 71.167], # mid-W wpt
+            #                         [39.833, 70.875], # NW wpt
+            #                         ])
+            #     distances_to_SE = []
+            #     distances_to_mid_E = []
+            #     distances_to_NE = []
+            #     distances_to_SW = []
+            #     distances_to_mid_W = []
+            #     distances_to_NW = []
+            #     SE_flags = []
+            #     mid_E_flags = []
+            #     NE_flags = []
+            #     SW_flags = []
+            #     mid_W_flags = []
+            #     NW_flags = []
 
 
-                #bound = calculate_fz(decimal_wpt_lat, decimal_wpt_lon)
-                #bounds.append(bound)
-                distances.append(distance)
+            # decimal_gps_lats = []
+            # decimal_gps_lons = []
+            # decimal_wpt_lats = []
+            # decimal_wpt_lons = []
 
-                #
-                if "FZ" in line:
-                    distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, FZ_box[0][0], FZ_box[0][1])
-                    distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, FZ_box[1][0], FZ_box[1][1])
-                    distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, FZ_box[2][0], FZ_box[2][1])
-                    distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, FZ_box[3][0], FZ_box[3][1])
+            # for index, row in df.iterrows():
+            #     gps_lat = row['GPS_Lat']
+            #     gps_lon = row['GPS_Lon']
+            #     wpt_lat = row['WPT_Lat']
+            #     wpt_lon = row['WPT_Lon']
 
-                    distance_threshold = 10000
-                    SE_flag = 0
-                    NE_flag = 0
-                    NW_flag = 0
-                    SW_flag = 0
-
-                    if distance_to_SE < distance_threshold:
-                        SE_flag = 1
-                    if distance_to_NE < distance_threshold:
-                        NE_flag = 1
-                    if distance_to_NW < distance_threshold:
-                        NW_flag = 1
-                    if distance_to_SW < distance_threshold:
-                        SW_flag = 1
-
-                    distances_to_SE.append(distance_to_SE)
-                    distances_to_NE.append(distance_to_NE)
-                    distances_to_NW.append(distance_to_NW)
-                    distances_to_SW.append(distance_to_SW)
-
-                    SE_flags.append(SE_flag)
-                    NE_flags.append(NE_flag)
-                    NW_flags.append(NW_flag)
-                    SW_flags.append(SW_flag)
-
-                if "EB" in line:
-                    distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[0][0], EB_line[0][1])
-                    distance_to_mid_E = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[1][0], EB_line[1][1])
-                    distance_to_N = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[2][0], EB_line[2][1])
-                    distance_to_W = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[3][0], EB_line[3][1])
-                    distance_to_mid_W = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[4][0], EB_line[4][1])
-                    distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, EB_line[5][0], EB_line[5][1])
-
-                    distance_threshold = 10000
-                    SE_flag = 0
-                    mid_E_flag = 0
-                    N_flag = 0
-                    mid_W_flag = 0
-                    W_flag = 0
-                    SW_flag = 0
-
-                    if distance_to_SE < distance_threshold:
-                        SE_flag = 1
-                    if distance_to_mid_E < distance_threshold:
-                        mid_E_flag = 1
-                    if distance_to_N < distance_threshold:
-                        N_flag = 1
-                    if distance_to_W < distance_threshold:
-                        W_flag = 1
-                    if distance_to_mid_W < distance_threshold:
-                        mid_W_flag = 1
-                    if distance_to_SW < distance_threshold:
-                        SW_flag = 1
-
-                    distances_to_SE.append(distance_to_SE)
-                    distances_to_mid_E.append(distance_to_mid_E)
-                    distances_to_N.append(distance_to_N)
-                    distances_to_W.append(distance_to_W)
-                    distances_to_mid_W.append(distance_to_mid_W)
-                    distances_to_SW.append(distance_to_SW)
-
-                    SE_flags.append(SE_flag)
-                    mid_E_flags.append(mid_E_flag)
-                    N_flags.append(N_flag)
-                    W_flags.append(W_flag)
-                    mid_W_flags.append(mid_W_flag)
-                    SW_flags.append(SW_flag)
-
-                if "SS-1" in line:
-                    distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[0][0], SS1_line[0][1])
-                    distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[1][0], SS1_line[1][1])
-                    distance_to_S_mid = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[2][0], SS1_line[2][1])
-                    distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[3][0], SS1_line[3][1])
-                    distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[4][0], SS1_line[4][1])
-                    distance_to_N_mid = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS1_line[5][0], SS1_line[5][1])
-
-                    distance_threshold = 10000
-                    SE_flag = 0
-                    NE_flag = 0
-                    S_mid_flag = 0
-                    NW_flag = 0
-                    SW_flag = 0
-                    N_mid_flag = 0
-
-                    if distance_to_SE < distance_threshold:
-                        SE_flag = 1
-                    if distance_to_NE < distance_threshold:
-                        NE_flag = 1
-                    if distance_to_S_mid < distance_threshold:
-                        S_mid_flag = 1
-                    if distance_to_NW < distance_threshold:
-                        NW_flag = 1
-                    if distance_to_SW < distance_threshold:
-                        SW_flag = 1
-                    if distance_to_N_mid < distance_threshold:
-                        N_mid_flag = 1
-
-                    distances_to_SE.append(distance_to_SE)
-                    distances_to_NE.append(distance_to_NE)
-                    distances_to_S_mid.append(distance_to_S_mid)
-                    distances_to_NW.append(distance_to_NW)
-                    distances_to_SW.append(distance_to_SW)
-                    distances_to_N_mid.append(distance_to_N_mid)
-
-                    SE_flags.append(SE_flag)
-                    NE_flags.append(NE_flag)
-                    S_mid_flags.append(S_mid_flag)
-                    NW_flags.append(NW_flag)
-                    SW_flags.append(SW_flag)
-                    N_mid_flags.append(N_mid_flag)
-
-                if "SS-2" in line:
-                    distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[0][0], SS2_line[0][1])
-                    distance_to_mid_E = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[1][0], SS2_line[1][1])
-                    distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[2][0], SS2_line[2][1])
-                    distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[3][0], SS2_line[3][1])
-                    distance_to_mid_W = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[4][0], SS2_line[4][1])
-                    distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
-                        decimal_gps_lon, SS2_line[5][0], SS2_line[5][1])
-
-                    distance_threshold = 10000
-                    SE_flag = 0
-                    mid_E_flag = 0
-                    NE_flag = 0
-                    SW_flag = 0
-                    mid_W_flag = 0
-                    NW_flag = 0
-
-                    if distance_to_SE < distance_threshold:
-                        SE_flag = 1
-                    if distance_to_mid_E < distance_threshold:
-                        mid_E_flag = 1
-                    if distance_to_NE < distance_threshold:
-                        NE_flag = 1
-                    if distance_to_SW < distance_threshold:
-                        SW_flag = 1
-                    if distance_to_mid_W < distance_threshold:
-                        mid_W_flag = 1
-                    if distance_to_NW < distance_threshold:
-                        NW_flag = 1
-
-                    distances_to_SE.append(distance_to_SE)
-                    distances_to_mid_E.append(distance_to_mid_E)
-                    distances_to_NE.append(distance_to_NE)
-                    distances_to_SW.append(distance_to_SW)
-                    distances_to_mid_W.append(distance_to_mid_W)
-                    distances_to_NW.append(distance_to_NW)
-
-                    SE_flags.append(SE_flag)
-                    mid_E_flags.append(mid_E_flag)
-                    NE_flags.append(NE_flag)
-                    SW_flags.append(SW_flag)
-                    mid_W_flags.append(mid_W_flag)
-                    NW_flags.append(NW_flag)
-
-                #if row['m_gps_heading'] == "No match.":
-                #    heading_deg = "No match."
-                #else:
-                #    heading_deg = float(row['m_gps_heading'])*(180/math.pi)
-                #headings.append(heading_deg)
-
-            #
-            #df['Track_Portion'] = bounds
-            df['Distance_to_waypoint'] = distances
-            #df.drop('Heading(deg)', axis=1, inplace=True)
-            df['GPS_Lat(DD)'] = decimal_gps_lats
-            df['GPS_Lon(DD)'] = decimal_gps_lons
-            df['WPT_Lat(DD)'] = decimal_wpt_lats
-            df['WPT_Lon(DD)'] = decimal_wpt_lons
-
-            if "FZ" in line:
-                df['Distance_to_SE_WPT'] = distances_to_SE
-                df['Distance_to_NE_WPT'] = distances_to_NE
-                df['Distance_to_NW_WPT'] = distances_to_NW
-                df['Distance_to_SW_WPT'] = distances_to_SW
-                df['AT_SE_WPT'] = SE_flags
-                df['AT_NE_WPT'] = NE_flags
-                df['AT_NW_WPT'] = NW_flags
-                df['AT_SW_WPT'] = SW_flags
-
-            if "EB" in line:
-                df['Distance_to_SE_WPT'] = distances_to_SE
-                df['Distance_to_mid_E_WPT'] = distances_to_mid_E
-                df['Distance_to_N_WPT'] = distances_to_N
-                df['Distance_to_W_WPT'] = distances_to_W
-                df['Distance_to_mid_W_WPT'] = distances_to_mid_W
-                df['Distance_to_SW_WPT'] = distances_to_SW
-                df['AT_SE_WPT'] = SE_flags
-                df['AT_MID_E_WPT'] = mid_E_flags
-                df['AT_N_WPT'] = N_flags
-                df['AT_W_WPT'] = W_flags
-                df['AT_MID_W_WPT'] = mid_W_flags
-                df['AT_SW_WPT'] = SW_flags
-
-            if "SS-1" in line:
-                df['Distance_to_SE_WPT'] = distances_to_SE
-                df['Distance_to_NE_WPT'] = distances_to_NE
-                df['Distance_to_mid_S_WPT'] = distances_to_S_mid
-                df['Distance_to_NW_WPT'] = distances_to_NW
-                df['Distance_to_SW_WPT'] = distances_to_SW
-                df['Distance_to_mid_N_WPT'] = distances_to_N_mid
-
-                df['AT_SE_WPT'] = SE_flags
-                df['AT_NE_WPT'] = NE_flags
-                df['AT_MID_N_WPT'] = N_mid_flags
-                df['AT_NW_WPT'] = NW_flags
-                df['AT_SW_WPT'] = SW_flags
-                df['AT_MID_S_WPT'] = N_mid_flags
-
-            if "SS-2" in line:
-                df['Distance_to_SE_WPT'] = distances_to_SE
-                df['Distance_to_mid_E_WPT'] = distances_to_mid_E
-                df['Distance_to_NE_WPT'] = distances_to_NE
-                df['Distance_to_SW_WPT'] = distances_to_SW
-                df['Distance_to_mid_W_WPT'] = distances_to_mid_W
-                df['Distance_to_NW_WPT'] = distances_to_NW
-
-                df['AT_SE_WPT'] = SE_flags
-                df['AT_MID_E_WPT'] = mid_E_flags
-                df['AT_NE_WPT'] = NE_flags
-                df['AT_SW_WPT'] = SW_flags
-                df['AT_MID_W_WPT'] = mid_W_flags
-                df['AT_NW_WPT'] = NW_flags
+            #     #
+            #     if wpt_lat == -1:
+            #         decimal_wpt_lat = -1
+            #         distance = "n/a"
+            #     else:
+            #         decimal_wpt_lat = parse_wpt_lat(wpt_lat)
+            #     decimal_wpt_lats.append(decimal_wpt_lat)
 
 
-            # Clean up the dataframe for out of place files
-            drop_files = []
-            glider = glider_name[-3:]
-            for index, row in df.iterrows():
-                drop_file = 0
-                file = row['File_Name']
-                if glider not in file:
-                    drop_file = 1
-                else:
-                    drop_file = 0
+            #     #
+            #     if wpt_lon == -1:
+            #         decimal_wpt_lon = -1
+            #         distance = "n/a"
+            #     else:
+            #         decimal_wpt_lon = parse_wpt_lon(wpt_lon)
+            #     decimal_wpt_lons.append(decimal_wpt_lon)
 
-                file_date = float(row['Datetime'])
-                if file_date < deploy_start_datetime or file_date > deploy_end_datetime:
-                    drop_file = 1
-                    #print("Dropping: "+ file)
+            #     #
+            #     if gps_lat == -1:
+            #         decimal_gps_lat = -1
+            #     else:
+            #         decimal_gps_lat = parse_gps_lat(gps_lat)
+            #     decimal_gps_lats.append(decimal_gps_lat)
 
-                drop_files.append(drop_file)
+            #     #
+            #     if gps_lon == -1:
+            #         decimal_gps_lon = -1
+            #     else:
+            #         decimal_gps_lon = parse_gps_lon(gps_lon)
+            #     decimal_gps_lons.append(decimal_gps_lon)
 
-            df["Drop_me"] = drop_files
-            df = df[df["Drop_me"] < 1]
-            df.drop('Drop_me', axis=1, inplace=True)
-            df.drop('index', axis=1, inplace=True)
-            df.drop('WPT_Lat', axis=1, inplace=True)
-            df.drop('WPT_Lon', axis=1, inplace=True)
-            df.drop('GPS_Lat', axis=1, inplace=True)
-            df.drop('GPS_Lon', axis=1, inplace=True)
-            df_cols = df.columns.tolist()
-            cols = ['Glider', 'Deployment', 'File_Name', 'Datetime', 'Line', 'GPS_Lat(DD)', 'GPS_Lon(DD)', 'WPT_Lat(DD)', 'WPT_Lon(DD)', 'm_tot_horz_dist', 'Distance_to_waypoint'] + df_cols[11:]
-            df = df[cols]
 
-            # Last science stuff
-            last_science_df = pd.read_csv("/Users/cdobson/Documents/Datateam/biofouling_project/input/last_science_dates.csv")
-            first_slice = last_science_df[last_science_df['Glider']==int(glider)]
-            second_slice = first_slice[first_slice['Deployment']==int(deployment_number)]
-            science_off = second_slice['ScienceOffDatetime'].values[0]
-            print("Science off: "+str(science_off))
+            #     if decimal_gps_lat == -1 or decimal_gps_lon == -1 or decimal_wpt_lat == -1 or decimal_wpt_lon == -1:
+            #         distance = -1
+            #     else:
+            #         distance = calculate_distance_from_waypoint(decimal_gps_lat, decimal_gps_lon, decimal_wpt_lat, decimal_wpt_lon)
 
-            science_on_flags = []
-            for index, row in df.iterrows():
-                science_on_flag = 0
-                if row['Datetime'] < science_off:
-                    #print("yes")
-                    science_on_flag= 1
-                else:
-                    science_on_flag = 0
-                science_on_flags.append(science_on_flag)
 
-            df["Science_on"] = science_on_flags
+            #     #bound = calculate_fz(decimal_wpt_lat, decimal_wpt_lon)
+            #     #bounds.append(bound)
+            #     distances.append(distance)
+
+            #     #
+            #     if "FZ" in line:
+            #         distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, FZ_box[0][0], FZ_box[0][1])
+            #         distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, FZ_box[1][0], FZ_box[1][1])
+            #         distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, FZ_box[2][0], FZ_box[2][1])
+            #         distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, FZ_box[3][0], FZ_box[3][1])
+
+            #         distance_threshold = 10000
+            #         SE_flag = 0
+            #         NE_flag = 0
+            #         NW_flag = 0
+            #         SW_flag = 0
+
+            #         if distance_to_SE < distance_threshold:
+            #             SE_flag = 1
+            #         if distance_to_NE < distance_threshold:
+            #             NE_flag = 1
+            #         if distance_to_NW < distance_threshold:
+            #             NW_flag = 1
+            #         if distance_to_SW < distance_threshold:
+            #             SW_flag = 1
+
+            #         distances_to_SE.append(distance_to_SE)
+            #         distances_to_NE.append(distance_to_NE)
+            #         distances_to_NW.append(distance_to_NW)
+            #         distances_to_SW.append(distance_to_SW)
+
+            #         SE_flags.append(SE_flag)
+            #         NE_flags.append(NE_flag)
+            #         NW_flags.append(NW_flag)
+            #         SW_flags.append(SW_flag)
+
+            #     if "EB" in line:
+            #         distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[0][0], EB_line[0][1])
+            #         distance_to_mid_E = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[1][0], EB_line[1][1])
+            #         distance_to_N = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[2][0], EB_line[2][1])
+            #         distance_to_W = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[3][0], EB_line[3][1])
+            #         distance_to_mid_W = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[4][0], EB_line[4][1])
+            #         distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, EB_line[5][0], EB_line[5][1])
+
+            #         distance_threshold = 10000
+            #         SE_flag = 0
+            #         mid_E_flag = 0
+            #         N_flag = 0
+            #         mid_W_flag = 0
+            #         W_flag = 0
+            #         SW_flag = 0
+
+            #         if distance_to_SE < distance_threshold:
+            #             SE_flag = 1
+            #         if distance_to_mid_E < distance_threshold:
+            #             mid_E_flag = 1
+            #         if distance_to_N < distance_threshold:
+            #             N_flag = 1
+            #         if distance_to_W < distance_threshold:
+            #             W_flag = 1
+            #         if distance_to_mid_W < distance_threshold:
+            #             mid_W_flag = 1
+            #         if distance_to_SW < distance_threshold:
+            #             SW_flag = 1
+
+            #         distances_to_SE.append(distance_to_SE)
+            #         distances_to_mid_E.append(distance_to_mid_E)
+            #         distances_to_N.append(distance_to_N)
+            #         distances_to_W.append(distance_to_W)
+            #         distances_to_mid_W.append(distance_to_mid_W)
+            #         distances_to_SW.append(distance_to_SW)
+
+            #         SE_flags.append(SE_flag)
+            #         mid_E_flags.append(mid_E_flag)
+            #         N_flags.append(N_flag)
+            #         W_flags.append(W_flag)
+            #         mid_W_flags.append(mid_W_flag)
+            #         SW_flags.append(SW_flag)
+
+            #     if "SS-1" in line:
+            #         distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[0][0], SS1_line[0][1])
+            #         distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[1][0], SS1_line[1][1])
+            #         distance_to_S_mid = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[2][0], SS1_line[2][1])
+            #         distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[3][0], SS1_line[3][1])
+            #         distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[4][0], SS1_line[4][1])
+            #         distance_to_N_mid = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS1_line[5][0], SS1_line[5][1])
+
+            #         distance_threshold = 10000
+            #         SE_flag = 0
+            #         NE_flag = 0
+            #         S_mid_flag = 0
+            #         NW_flag = 0
+            #         SW_flag = 0
+            #         N_mid_flag = 0
+
+            #         if distance_to_SE < distance_threshold:
+            #             SE_flag = 1
+            #         if distance_to_NE < distance_threshold:
+            #             NE_flag = 1
+            #         if distance_to_S_mid < distance_threshold:
+            #             S_mid_flag = 1
+            #         if distance_to_NW < distance_threshold:
+            #             NW_flag = 1
+            #         if distance_to_SW < distance_threshold:
+            #             SW_flag = 1
+            #         if distance_to_N_mid < distance_threshold:
+            #             N_mid_flag = 1
+
+            #         distances_to_SE.append(distance_to_SE)
+            #         distances_to_NE.append(distance_to_NE)
+            #         distances_to_S_mid.append(distance_to_S_mid)
+            #         distances_to_NW.append(distance_to_NW)
+            #         distances_to_SW.append(distance_to_SW)
+            #         distances_to_N_mid.append(distance_to_N_mid)
+
+            #         SE_flags.append(SE_flag)
+            #         NE_flags.append(NE_flag)
+            #         S_mid_flags.append(S_mid_flag)
+            #         NW_flags.append(NW_flag)
+            #         SW_flags.append(SW_flag)
+            #         N_mid_flags.append(N_mid_flag)
+
+            #     if "SS-2" in line:
+            #         distance_to_SE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[0][0], SS2_line[0][1])
+            #         distance_to_mid_E = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[1][0], SS2_line[1][1])
+            #         distance_to_NE = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[2][0], SS2_line[2][1])
+            #         distance_to_SW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[3][0], SS2_line[3][1])
+            #         distance_to_mid_W = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[4][0], SS2_line[4][1])
+            #         distance_to_NW = calculate_distance_from_waypoint(decimal_gps_lat,
+            #             decimal_gps_lon, SS2_line[5][0], SS2_line[5][1])
+
+            #         distance_threshold = 10000
+            #         SE_flag = 0
+            #         mid_E_flag = 0
+            #         NE_flag = 0
+            #         SW_flag = 0
+            #         mid_W_flag = 0
+            #         NW_flag = 0
+
+            #         if distance_to_SE < distance_threshold:
+            #             SE_flag = 1
+            #         if distance_to_mid_E < distance_threshold:
+            #             mid_E_flag = 1
+            #         if distance_to_NE < distance_threshold:
+            #             NE_flag = 1
+            #         if distance_to_SW < distance_threshold:
+            #             SW_flag = 1
+            #         if distance_to_mid_W < distance_threshold:
+            #             mid_W_flag = 1
+            #         if distance_to_NW < distance_threshold:
+            #             NW_flag = 1
+
+            #         distances_to_SE.append(distance_to_SE)
+            #         distances_to_mid_E.append(distance_to_mid_E)
+            #         distances_to_NE.append(distance_to_NE)
+            #         distances_to_SW.append(distance_to_SW)
+            #         distances_to_mid_W.append(distance_to_mid_W)
+            #         distances_to_NW.append(distance_to_NW)
+
+            #         SE_flags.append(SE_flag)
+            #         mid_E_flags.append(mid_E_flag)
+            #         NE_flags.append(NE_flag)
+            #         SW_flags.append(SW_flag)
+            #         mid_W_flags.append(mid_W_flag)
+            #         NW_flags.append(NW_flag)
+
+            #     #if row['m_gps_heading'] == "No match.":
+            #     #    heading_deg = "No match."
+            #     #else:
+            #     #    heading_deg = float(row['m_gps_heading'])*(180/math.pi)
+            #     #headings.append(heading_deg)
+
+            # #
+            # #df['Track_Portion'] = bounds
+            # df['Distance_to_waypoint'] = distances
+            # #df.drop('Heading(deg)', axis=1, inplace=True)
+            # df['GPS_Lat(DD)'] = decimal_gps_lats
+            # df['GPS_Lon(DD)'] = decimal_gps_lons
+            # df['WPT_Lat(DD)'] = decimal_wpt_lats
+            # df['WPT_Lon(DD)'] = decimal_wpt_lons
+
+            # if "FZ" in line:
+            #     df['Distance_to_SE_WPT'] = distances_to_SE
+            #     df['Distance_to_NE_WPT'] = distances_to_NE
+            #     df['Distance_to_NW_WPT'] = distances_to_NW
+            #     df['Distance_to_SW_WPT'] = distances_to_SW
+            #     df['AT_SE_WPT'] = SE_flags
+            #     df['AT_NE_WPT'] = NE_flags
+            #     df['AT_NW_WPT'] = NW_flags
+            #     df['AT_SW_WPT'] = SW_flags
+
+            # if "EB" in line:
+            #     df['Distance_to_SE_WPT'] = distances_to_SE
+            #     df['Distance_to_mid_E_WPT'] = distances_to_mid_E
+            #     df['Distance_to_N_WPT'] = distances_to_N
+            #     df['Distance_to_W_WPT'] = distances_to_W
+            #     df['Distance_to_mid_W_WPT'] = distances_to_mid_W
+            #     df['Distance_to_SW_WPT'] = distances_to_SW
+            #     df['AT_SE_WPT'] = SE_flags
+            #     df['AT_MID_E_WPT'] = mid_E_flags
+            #     df['AT_N_WPT'] = N_flags
+            #     df['AT_W_WPT'] = W_flags
+            #     df['AT_MID_W_WPT'] = mid_W_flags
+            #     df['AT_SW_WPT'] = SW_flags
+
+            # if "SS-1" in line:
+            #     df['Distance_to_SE_WPT'] = distances_to_SE
+            #     df['Distance_to_NE_WPT'] = distances_to_NE
+            #     df['Distance_to_mid_S_WPT'] = distances_to_S_mid
+            #     df['Distance_to_NW_WPT'] = distances_to_NW
+            #     df['Distance_to_SW_WPT'] = distances_to_SW
+            #     df['Distance_to_mid_N_WPT'] = distances_to_N_mid
+
+            #     df['AT_SE_WPT'] = SE_flags
+            #     df['AT_NE_WPT'] = NE_flags
+            #     df['AT_MID_N_WPT'] = N_mid_flags
+            #     df['AT_NW_WPT'] = NW_flags
+            #     df['AT_SW_WPT'] = SW_flags
+            #     df['AT_MID_S_WPT'] = N_mid_flags
+
+            # if "SS-2" in line:
+            #     df['Distance_to_SE_WPT'] = distances_to_SE
+            #     df['Distance_to_mid_E_WPT'] = distances_to_mid_E
+            #     df['Distance_to_NE_WPT'] = distances_to_NE
+            #     df['Distance_to_SW_WPT'] = distances_to_SW
+            #     df['Distance_to_mid_W_WPT'] = distances_to_mid_W
+            #     df['Distance_to_NW_WPT'] = distances_to_NW
+
+            #     df['AT_SE_WPT'] = SE_flags
+            #     df['AT_MID_E_WPT'] = mid_E_flags
+            #     df['AT_NE_WPT'] = NE_flags
+            #     df['AT_SW_WPT'] = SW_flags
+            #     df['AT_MID_W_WPT'] = mid_W_flags
+            #     df['AT_NW_WPT'] = NW_flags
+
+
+            # # Clean up the dataframe for out of place files
+            # drop_files = []
+            # glider = glider_name[-3:]
+            # for index, row in df.iterrows():
+            #     drop_file = 0
+            #     file = row['File_Name']
+            #     if glider not in file:
+            #         drop_file = 1
+            #     else:
+            #         drop_file = 0
+
+            #     file_date = float(row['Datetime'])
+            #     if file_date < deploy_start_datetime or file_date > deploy_end_datetime:
+            #         drop_file = 1
+            #         #print("Dropping: "+ file)
+
+            #     drop_files.append(drop_file)
+
+            # df["Drop_me"] = drop_files
+            # df = df[df["Drop_me"] < 1]
+            # df.drop('Drop_me', axis=1, inplace=True)
+            # df.drop('index', axis=1, inplace=True)
+            # df.drop('WPT_Lat', axis=1, inplace=True)
+            # df.drop('WPT_Lon', axis=1, inplace=True)
+            # df.drop('GPS_Lat', axis=1, inplace=True)
+            # df.drop('GPS_Lon', axis=1, inplace=True)
+            # df_cols = df.columns.tolist()
+            # #cols = ['Glider', 'Deployment', 'File_Name', 'Datetime', 'Line', 'GPS_Lat(DD)', 'GPS_Lon(DD)', 'WPT_Lat(DD)', 'WPT_Lon(DD)', 'm_tot_horz_dist', 'Distance_to_waypoint'] + df_cols[11:]
+            # cols = ['Glider', 'Deployment', 'File_Name', 'Datetime', 'Line', 'GPS_Lat(DD)', 'GPS_Lon(DD)', 'WPT_Lat(DD)', 'WPT_Lon(DD)', 'm_tot_horz_dist'] + df_cols[11:]
+            # df = df[cols]
+
+            # # Last science stuff
+            # last_science_df = pd.read_csv("/Users/cdobson/Documents/Datateam/biofouling_project/input/last_science_dates.csv")
+            # first_slice = last_science_df[last_science_df['Glider']==int(glider)]
+            # second_slice = first_slice[first_slice['Deployment']==int(deployment_number)]
+            # science_off = second_slice['ScienceOffDatetime'].values[0]
+            # print("Science off: "+str(science_off))
+
+            # science_on_flags = []
+            # for index, row in df.iterrows():
+            #     science_on_flag = 0
+            #     if row['Datetime'] < science_off:
+            #         #print("yes")
+            #         science_on_flag= 1
+            #     else:
+            #         science_on_flag = 0
+            #     science_on_flags.append(science_on_flag)
+
+            # df["Science_on"] = science_on_flags
 
             # Sort the dataframe by date and save it
             df = df.sort_values('Datetime')
@@ -1027,19 +1062,19 @@ def main(argv=None):
             df.to_csv(csv_name, index=False)
 
 
-            # Save the csv a second time
-            if "FZ" in line:
-                csv_save = save_dir+"output/FZ_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
-            elif "SS-1" in line:
-                csv_save = save_dir+"output/SS-1_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
-            elif "SS-2" in line:
-                csv_save = save_dir+"output/SS-2_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
-            elif "EB" in line:
-                csv_save = save_dir+"output/EB_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
-            else:
-                csv_save = save_dir+"output/No-Line_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
+            # # Save the csv a second time
+            # if "FZ" in line:
+            #     csv_save = save_dir+"output/FZ_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
+            # elif "SS-1" in line:
+            #     csv_save = save_dir+"output/SS-1_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
+            # elif "SS-2" in line:
+            #     csv_save = save_dir+"output/SS-2_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
+            # elif "EB" in line:
+            #     csv_save = save_dir+"output/EB_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
+            # else:
+            #     csv_save = save_dir+"output/No-Line_Gliders/"+glider_name+"_D"+str(deployment_number).zfill(5)+"_ds_logfile_extractions.csv"
 
-            df.to_csv(csv_save, index=False)
+            # df.to_csv(csv_save, index=False)
 
     elif file_type.lower() == "meta":
         all_gliders = []
