@@ -2,9 +2,11 @@ import os
 import re
 import glob
 import configparser
+from math import trunc
 import xml.dom.minidom
 
-raw_data_dir = '/Volumes/data/'
+#raw_data_dir = '/Volumes/data/'
+raw_data_dir = '/srv/fmc-data/raw/'
 ge_template = 'archive.kml'
 config_file = 'archive_config.py'
 
@@ -51,24 +53,26 @@ class Archive:
             fh.close()
 
             # Confirm that each log file is for the given glider
-            glider_sn = re.findall('Vehicle Name: (......?)', log_text)[0][3:]
-            if glider_sn in self.glider:
-                gps_posits = re.findall('GPS Location:.+? (.+?) m', log_text)
-                # Exclude invalid positons 
-                for posit in gps_posits:
-                    if "696969" in posit:
-                        gps_posits.remove(posit)
+            glider_sn = re.findall('Vehicle Name: (......?)', log_text)
+            if len(glider_sn) > 0:
+                if glider_sn[0][3:] in self.glider:
+                    #gps_posits = re.findall('GPS Location:.+? (.+?) m', log_text)
+                    gps_posits = re.findall('GPS Location: (.+?) m', log_text)
+                    # Exclude invalid positons 
+                    gps_posits = [ posit.strip() for posit in gps_posits if "6969" not in posit ]
 
-                if len(gps_posits) > 0:
-                    # Convert lat/lon values to the correct format
-                    posit = gps_posits[0]
-                    lat = self.convert_lat(posit)
-                    lon = self.convert_lon(posit)
-                    # Append lat/lon values formatted for GE
-                    ge_string = "-"+str(lon)+","+str(lat)+",0"
-                    self.ge_strings.append(ge_string)
+                    if len(gps_posits) > 0:
+                        # Convert lat/lon values to the correct format
+                        posit = gps_posits[0]
+                        lat = self.convert_lat(posit)
+                        lon = self.convert_lon(posit)
+                        # Append lat/lon values formatted for GE
+                        ge_string = ""+str(lon)+","+str(lat)+",0"
+                        self.ge_strings.append(ge_string)
                 else:
                     continue
+            else:
+                continue
         
         # Join all GE formatted lat/lon strings 
         self.ge_string = ",".join(self.ge_strings)
@@ -78,8 +82,14 @@ class Archive:
         Converts a latitude value parsed from a dockserver log file to
         decimal degree format for GE plot
         """
-        lat = location.split(" ")[0]
-        converted_lat = round((float(lat[0:2]) + float(lat[2:])/60), 4)
+        lat = float(list(filter(lambda x: len(x) > 0, location.split(" ")))[0])
+        degrees = trunc(float(lat)/100)
+        decimal_minutes = abs(round(lat-degrees*100,3)/60)
+        converted_lat = round(abs(degrees)+decimal_minutes,3)
+
+        if lat <0:
+            converted_lat = converted_lat * -1
+
         return(converted_lat)
 
     def convert_lon(self, location):
@@ -87,8 +97,14 @@ class Archive:
         Converts a longitude value parsed from a dockserver log file to
         decimal degree format for GE plot
         """
-        lon = location.split(" ")[2]
-        converted_lon = round((float(lon[1:3]) + float(lon[3:])/60), 4)
+        lon = float(list(filter(lambda x: len(x) > 0, location.split(" ")))[2])
+        degrees = trunc(float(lon)/100)
+        decimal_minutes = abs(round(lon-degrees*100,3)/60)
+        converted_lon = round(abs(degrees)+decimal_minutes,3)
+
+        if lon <0:
+            converted_lon = converted_lon * -1
+
         return(converted_lon)
 
 
@@ -114,33 +130,73 @@ def parse_config(config_file):
 
 class KML: 
     def __init__(self):
-        self.kml_base = '<?xml version="1.0" ?><kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document>INSERT_HERE</Document></kml>'
-        self.kml_string = self.kml_base
+        self.kml_pieces = {}
+        self.full_kml = ''
+
+
+        self.base_template = '<?xml version="1.0" ?>'\
+        '<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">'\
+        '<Document>{}</Document>'\
+        '</kml>'
+
+        self.folder_template = '<Folder>'\
+        '<name>{}</name>'\
+        '{}'\
+        '</Folder>'
+
+        self.glider_template = '<Placemark>'\
+        '<name>{}</name>'\
+        '{}'\
+        '<styleUrl>gtrail</styleUrl>'\
+        '<LineString>'\
+        '<altitudeMode>absolute</altitudeMode>'\
+        '<coordinates>{}</coordinates>'\
+        '</LineString>'\
+        '</Placemark>'
+
+        self.lookat_template = '<LookAt>'\
+        '<latitude>{}</latitude>'\
+        '<longitude>{}</longitude>'\
+        '<range>230000</range>'\
+        '<altitude>0</altitude>'\
+        '<altitudeMode>absolute</altitudeMode>'\
+        '<heading>0</heading>'\
+        '<tilt>0</tilt>'\
+        '</LookAt>'
+
     
     def add_glider(self, cruise_name, glider, positions):
-        if cruise_name in self.kml_string:
-            index_start = self.kml_string.find(cruise_name)+len(cruise_name)+len("</name>")
-            index_end = self.kml_string.find(cruise_name)+len(cruise_name)+len("</name>")
-            new_kml_string = self.kml_string[:index_start]+'<Placemark><name>'+glider+'</name><styleUrl>gtrail</styleUrl><LineString><altitudeMode>absolute</altitudeMode><coordinates>'+positions+'</coordinates></LineString></Placemark>'+self.kml_string[index_end:]
-            self.kml_string = new_kml_string
-        else:
-            if "INSERT_HERE" in self.kml_string:
-                index_start = self.kml_string.find("INSERT_HERE")
-                index_end = index_start+11
-            else:
-                index_start = self.kml_string.rfind("</Folder>")+9
-                index_end = self.kml_string.rfind("</Folder>")+9
+        all_posits = positions.split(',')
+        if len(all_posits) > 1:
+            lookat = all_posits[(len(all_posits)-3):(len(all_posits)-1)]
+            lookat_lat = lookat[1]
+            lookat_lon = lookat[0]
+            lookat_kml = self.lookat_template.format(lookat_lat, lookat_lon)
 
-            new_kml_string = self.kml_string[:index_start]+'<Folder><name>'+cruise_name+'</name><Placemark><name>'+glider+'</name><styleUrl>gtrail</styleUrl><LineString><altitudeMode>absolute</altitudeMode><coordinates>'+positions+'</coordinates></LineString></Placemark></Folder>'+self.kml_string[index_end:]
-            self.kml_string = new_kml_string
+            temp_lookat = self.lookat_template.format(lookat_lat, lookat_lon)
+            temp_glider = self.glider_template.format(glider, temp_lookat, positions)
+
+            if cruise_name in self.kml_pieces:
+                self.kml_pieces[cruise_name].append(temp_glider)
+            else:
+                self.kml_pieces[cruise_name] = []
+                self.kml_pieces[cruise_name].append(temp_glider)
+    
+    def concat_kml(self):
+        all_folders = []
+        for cruise in self.kml_pieces:
+            temp_folder = self.folder_template.format(cruise, ''.join(self.kml_pieces[cruise]))
+            all_folders.append(temp_folder)
+        self.full_kml = self.base_template.format(''.join(all_folders))
+
 
     def pretty_print(self):
-        temp = xml.dom.minidom.parseString(self.kml_string)
+        temp = xml.dom.minidom.parseString(self.full_kml)
         new_xml = temp.toprettyxml()
         print(new_xml)
     
     def write_kml(self):
-        temp = xml.dom.minidom.parseString(self.kml_string)
+        temp = xml.dom.minidom.parseString(self.full_kml)
         new_xml = temp.toprettyxml()
         with open("Archive.kml", "w") as f:
             f.write(new_xml)
@@ -153,11 +209,14 @@ def main():
     archive_KML = KML()
     # Iterate through the deployments and build archive KML
     for i in config_dict:
+        print(i)
         archives = [Archive(j.split("/")[0], j.split("/")[1][-1], i) for j in config_dict[i]]
+        
         for glider_archive in archives:
             #glider_archive.ge_string = '-70.000,49.000,0'
             archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string)
+    archive_KML.concat_kml()
     archive_KML.write_kml()
 
-
-
+if __name__ == "__main__":
+    main()
