@@ -7,7 +7,6 @@ import xml.dom.minidom
 
 #raw_data_dir = '/Volumes/data/'
 raw_data_dir = '/srv/fmc-data/raw/'
-ge_template = 'archive.kml'
 config_file = 'archive_config.py'
 
 class Archive:
@@ -22,10 +21,9 @@ class Archive:
         # Parse the dockserver logs 
         self.parse_logs()
 
-
     def generate_ds_path(self, raw_data_dir):
         """
-        Generate the path to dockserver logs for a specific glider deployment 
+        Generate the path to dockserver log files for a specific glider deployment 
         """
         ds_log_path = os.path.join(raw_data_dir, self.glider)
         ds_log_path = os.path.join(ds_log_path,'D'+str(self.dnum).zfill(5))
@@ -43,7 +41,7 @@ class Archive:
     def parse_logs(self):
         """
         Parse all dockserver log files for a given glider deployment to extract
-        GPS positions and concat them into a string for GE purposes 
+        GPS positions and concat them into a string 
         """
         for log in self.ds_logs:
             # Open the dockserver log file to grab the text 
@@ -56,11 +54,11 @@ class Archive:
             glider_sn = re.findall('Vehicle Name: (......?)', log_text)
             if len(glider_sn) > 0:
                 if glider_sn[0][3:] in self.glider:
-                    #gps_posits = re.findall('GPS Location:.+? (.+?) m', log_text)
                     gps_posits = re.findall('GPS Location: (.+?) m', log_text)
                     # Exclude invalid positons 
                     gps_posits = [ posit.strip() for posit in gps_posits if "6969" not in posit ]
 
+                    # Parse valid GPS position 
                     if len(gps_posits) > 0:
                         # Convert lat/lon values to the correct format
                         posit = gps_posits[0]
@@ -111,10 +109,10 @@ class Archive:
 def parse_config(config_file):
     """
     Parses the config file containing all glider deployments 
-    that are to be included in GE tool archive
+    that are to be included in the archive
     """
     config = configparser.ConfigParser(inline_comment_prefixes=('#',))
-    config.optionxform = str  # make keys case sensitive
+    config.optionxform = str  
     config.read(config_file)
 
     # Create a dictionary to stash all glider deployments 
@@ -133,7 +131,7 @@ class KML:
         self.kml_pieces = {}
         self.full_kml = ''
 
-
+        # KML templates below 
         self.base_template = '<?xml version="1.0" ?>'\
         '<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">'\
         '<Document>{}</Document>'\
@@ -166,23 +164,34 @@ class KML:
 
     
     def add_glider(self, cruise_name, glider, positions):
+        """
+        Add a glider deployment to the KML archive by extracting and storing 
+        GPS positions 
+        """
         all_posits = positions.split(',')
         if len(all_posits) > 1:
+            # Extract the most recent position for GE POV 
             lookat = all_posits[(len(all_posits)-3):(len(all_posits)-1)]
             lookat_lat = lookat[1]
             lookat_lon = lookat[0]
             lookat_kml = self.lookat_template.format(lookat_lat, lookat_lon)
 
+            # Format lookat and placemark templates for deployment
             temp_lookat = self.lookat_template.format(lookat_lat, lookat_lon)
             temp_glider = self.glider_template.format(glider, temp_lookat, positions)
 
+            # Stash deployment data based on cruise 
             if cruise_name in self.kml_pieces:
                 self.kml_pieces[cruise_name].append(temp_glider)
             else:
                 self.kml_pieces[cruise_name] = []
                 self.kml_pieces[cruise_name].append(temp_glider)
     
+
     def concat_kml(self):
+        """
+        Concatenate all KML text for each glider deployment into a single string
+        """
         all_folders = []
         for cruise in self.kml_pieces:
             temp_folder = self.folder_template.format(cruise, ''.join(self.kml_pieces[cruise]))
@@ -191,11 +200,17 @@ class KML:
 
 
     def pretty_print(self):
+        """
+        Format KML text into XML format 
+        """
         temp = xml.dom.minidom.parseString(self.full_kml)
         new_xml = temp.toprettyxml()
         print(new_xml)
     
     def write_kml(self):
+        """
+        Write XML text into KML file 
+        """
         temp = xml.dom.minidom.parseString(self.full_kml)
         new_xml = temp.toprettyxml()
         with open("Archive.kml", "w") as f:
@@ -206,15 +221,18 @@ def main():
     # Load in the config file and parse deployments to be archived
     config_dict = parse_config(config_file)
 
+    # Create instance of KML class to store KML strings for all deployments
     archive_KML = KML()
-    # Iterate through the deployments and build archive KML
+    # Iterate through the deployments and extract glider positions 
     for i in config_dict:
         print(i)
+        # Create instance of Archive class for each glider deployment in a cruise 
         archives = [Archive(j.split("/")[0], j.split("/")[1][-1], i) for j in config_dict[i]]
         
+        # Extract glider positions and store them in the KML class for each deployment 
         for glider_archive in archives:
-            #glider_archive.ge_string = '-70.000,49.000,0'
             archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string)
+    # Concat all KML text and store it into a KML file 
     archive_KML.concat_kml()
     archive_KML.write_kml()
 
