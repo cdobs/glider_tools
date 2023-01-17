@@ -2,6 +2,7 @@ import os
 import re
 import glob
 import configparser
+import pandas as pd
 from math import trunc
 import xml.dom.minidom
 
@@ -18,6 +19,8 @@ class Archive:
         self.ds_logs = self.get_files()
         self.ge_string = ''
         self.ge_strings = []
+        # Get AM info
+        self.get_ooi_am()
         # Parse the dockserver logs 
         self.parse_logs()
 
@@ -105,6 +108,23 @@ class Archive:
 
         return(converted_lon)
 
+    def get_ooi_am(self):
+        """
+        Gets asset management information from remote OOI CGSN Github repo
+        to parse out the start and end dates for each deployment 
+        """
+        # Get remote ooicgsn asset management URL
+        am_url = 'https://raw.githubusercontent.com/oceanobservatories/asset-management/master/deployment/'
+        am_url = os.path.join(am_url, self.glider+"_Deploy.csv")
+        # Read remote deployment CSV into pandas df
+        df = pd.read_csv(am_url, index_col=0)
+        # Cull df based on deployment number
+        df = df[df['deploymentNumber'] == int(self.dnum)]
+
+        # Extract and store deployment start and stop times
+        self.deployment_date = df['startDateTime'][0]
+        self.recovery_date = df['stopDateTime'][0]
+
 
 def parse_config(config_file):
     """
@@ -124,6 +144,7 @@ def parse_config(config_file):
         config_dict[section] = temp_list
     
     return(config_dict)
+
 
 
 class KML: 
@@ -150,6 +171,19 @@ class KML:
         '<altitudeMode>absolute</altitudeMode>'\
         '<coordinates>{}</coordinates>'\
         '</LineString>'\
+        '<description>'\
+        '<![CDATA['\
+        '<h3><b>Deployed:</b></h3>\n {}'\
+        '<h3><b>Recovered:</b></h3>\n {}'\
+        ']]>'\
+        '</description>'\
+        '<Snippet maxLines="0"/>'\
+        '<Style>'\
+        '<LineStyle>'\
+        '<color>#6414E7FF</color>'\
+        '<width>5</width>'\
+        '</LineStyle>'\
+        '</Style>'\
         '</Placemark>'
 
         self.lookat_template = '<LookAt>'\
@@ -163,7 +197,7 @@ class KML:
         '</LookAt>'
 
     
-    def add_glider(self, cruise_name, glider, positions):
+    def add_glider(self, cruise_name, glider, positions, deployment_date, recovery_date):
         """
         Add a glider deployment to the KML archive by extracting and storing 
         GPS positions 
@@ -178,7 +212,7 @@ class KML:
 
             # Format lookat and placemark templates for deployment
             temp_lookat = self.lookat_template.format(lookat_lat, lookat_lon)
-            temp_glider = self.glider_template.format(glider, temp_lookat, positions)
+            temp_glider = self.glider_template.format(glider, temp_lookat, positions, deployment_date, recovery_date)
 
             # Stash deployment data based on cruise 
             if cruise_name in self.kml_pieces:
@@ -231,7 +265,7 @@ def main():
         
         # Extract glider positions and store them in the KML class for each deployment 
         for glider_archive in archives:
-            archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string)
+            archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string, glider_archive.deployment_date, glider_archive.recovery_date)
     # Concat all KML text and store it into a KML file 
     archive_KML.concat_kml()
     archive_KML.write_kml()
