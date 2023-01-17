@@ -6,8 +6,8 @@ import pandas as pd
 from math import trunc
 import xml.dom.minidom
 
-#raw_data_dir = '/Volumes/data/'
-raw_data_dir = '/srv/fmc-data/raw/'
+raw_data_dir = '/Volumes/data/'
+#raw_data_dir = '/srv/fmc-data/raw/'
 config_file = 'archive_config.py'
 
 class Archive:
@@ -46,34 +46,38 @@ class Archive:
         Parse all dockserver log files for a given glider deployment to extract
         GPS positions and concat them into a string 
         """
+        deploy_time_stripped = re.sub(r'[^a-zA-Z0-9]', '', self.deployment_date)
+        recovery_time_stripped = re.sub(r'[^a-zA-Z0-9]', '', self.recovery_date)
+
         for log in self.ds_logs:
-            # Open the dockserver log file to grab the text 
-            print(log)
-            fh = open(log)
-            log_text = fh.read()
-            fh.close()
+            ds_time_regx = re.findall("[0-9]{8}T[0-9]{6}", log.split("/")[-1])
+            if ds_time_regx:
+                ds_time = ds_time_regx[0]
+                if ds_time > deploy_time_stripped and ds_time < recovery_time_stripped:
+                    # Open the dockserver log file to grab the text 
+                    print(log)
+                    fh = open(log)
+                    log_text = fh.read()
+                    fh.close()
 
-            # Confirm that each log file is for the given glider
-            glider_sn = re.findall('Vehicle Name: (......?)', log_text)
-            if len(glider_sn) > 0:
-                if glider_sn[0][3:] in self.glider:
-                    gps_posits = re.findall('GPS Location: (.+?) m', log_text)
-                    # Exclude invalid positons 
-                    gps_posits = [ posit.strip() for posit in gps_posits if "6969" not in posit ]
+                    # Confirm that each log file is for the given glider
+                    glider_sn = re.findall('Vehicle Name: (......?)', log_text)
+                    if len(glider_sn) > 0:
+                        if glider_sn[0][3:] in self.glider:
+                            gps_posits = re.findall('GPS Location: (.+?) m', log_text)
+                            # Exclude invalid positons 
+                            gps_posits = [ posit.strip() for posit in gps_posits if "6969" not in posit ]
 
-                    # Parse valid GPS position 
-                    if len(gps_posits) > 0:
-                        # Convert lat/lon values to the correct format
-                        posit = gps_posits[0]
-                        lat = self.convert_lat(posit)
-                        lon = self.convert_lon(posit)
-                        # Append lat/lon values formatted for GE
-                        ge_string = ""+str(lon)+","+str(lat)+",0"
-                        self.ge_strings.append(ge_string)
-                else:
-                    continue
-            else:
-                continue
+                            # Parse valid GPS position 
+                            if len(gps_posits) > 0:
+                                # Convert lat/lon values to the correct format
+                                posit = gps_posits[0]
+                                lat = self.convert_lat(posit)
+                                lon = self.convert_lon(posit)
+                                # Append lat/lon values formatted for GE
+                                ge_string = ""+str(lon)+","+str(lat)+",0"
+                                self.ge_strings.append(ge_string)
+
         
         # Join all GE formatted lat/lon strings 
         self.ge_string = ",".join(self.ge_strings)
@@ -107,6 +111,10 @@ class Archive:
             converted_lon = converted_lon * -1
 
         return(converted_lon)
+    
+    def convert_ds_timestamp(timestamp):
+
+        print(timestamp)
 
     def get_ooi_am(self):
         """
@@ -116,6 +124,7 @@ class Archive:
         # Get remote ooicgsn asset management URL
         am_url = 'https://raw.githubusercontent.com/oceanobservatories/asset-management/master/deployment/'
         am_url = os.path.join(am_url, self.glider+"_Deploy.csv")
+        print(am_url)
         # Read remote deployment CSV into pandas df
         df = pd.read_csv(am_url, index_col=0)
         # Cull df based on deployment number
@@ -124,27 +133,6 @@ class Archive:
         # Extract and store deployment start and stop times
         self.deployment_date = df['startDateTime'][0]
         self.recovery_date = df['stopDateTime'][0]
-
-
-def parse_config(config_file):
-    """
-    Parses the config file containing all glider deployments 
-    that are to be included in the archive
-    """
-    config = configparser.ConfigParser(inline_comment_prefixes=('#',))
-    config.optionxform = str  
-    config.read(config_file)
-
-    # Create a dictionary to stash all glider deployments 
-    config_dict = {}
-    for section in config.sections():
-        temp_list = []
-        for item in config.items(section):
-            temp_list.append(item[1])
-        config_dict[section] = temp_list
-    
-    return(config_dict)
-
 
 
 class KML: 
@@ -173,6 +161,7 @@ class KML:
         '</LineString>'\
         '<description>'\
         '<![CDATA['\
+        '<h3><b>D{}</b></h3>'\
         '<h3><b>Deployed:</b></h3>\n {}'\
         '<h3><b>Recovered:</b></h3>\n {}'\
         ']]>'\
@@ -197,7 +186,7 @@ class KML:
         '</LookAt>'
 
     
-    def add_glider(self, cruise_name, glider, positions, deployment_date, recovery_date):
+    def add_glider(self, cruise_name, glider, positions, dnum, deployment_date, recovery_date):
         """
         Add a glider deployment to the KML archive by extracting and storing 
         GPS positions 
@@ -212,7 +201,7 @@ class KML:
 
             # Format lookat and placemark templates for deployment
             temp_lookat = self.lookat_template.format(lookat_lat, lookat_lon)
-            temp_glider = self.glider_template.format(glider, temp_lookat, positions, deployment_date, recovery_date)
+            temp_glider = self.glider_template.format(glider, temp_lookat, positions, dnum, deployment_date, recovery_date)
 
             # Stash deployment data based on cruise 
             if cruise_name in self.kml_pieces:
@@ -251,6 +240,26 @@ class KML:
             f.write(new_xml)
 
 
+def parse_config(config_file):
+    """
+    Parses the config file containing all glider deployments 
+    that are to be included in the archive
+    """
+    config = configparser.ConfigParser(inline_comment_prefixes=('#',))
+    config.optionxform = str  
+    config.read(config_file)
+
+    # Create a dictionary to stash all glider deployments 
+    config_dict = {}
+    for section in config.sections():
+        temp_list = []
+        for item in config.items(section):
+            temp_list.append(item[1])
+        config_dict[section] = temp_list
+    
+    return(config_dict)
+
+
 def main():
     # Load in the config file and parse deployments to be archived
     config_dict = parse_config(config_file)
@@ -261,11 +270,14 @@ def main():
     for i in config_dict:
         print(i)
         # Create instance of Archive class for each glider deployment in a cruise 
-        archives = [Archive(j.split("/")[0], j.split("/")[1][-1], i) for j in config_dict[i]]
-        
+        archives = []
+        for j in config_dict[i]:
+            glider = j.split("/")[0]
+            dnum = re.sub('[^0-9]','', j.split("/")[1])
+            archives.append(Archive(glider, dnum, i))
         # Extract glider positions and store them in the KML class for each deployment 
         for glider_archive in archives:
-            archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string, glider_archive.deployment_date, glider_archive.recovery_date)
+            archive_KML.add_glider(glider_archive.cruise, glider_archive.glider, glider_archive.ge_string, glider_archive.dnum, glider_archive.deployment_date, glider_archive.recovery_date)
     # Concat all KML text and store it into a KML file 
     archive_KML.concat_kml()
     archive_KML.write_kml()
