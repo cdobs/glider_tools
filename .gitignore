@@ -1,3 +1,4 @@
+sst_image_processing/config.py
 sst_image_processing/ds_logs/*
 sst_image_processing/images/*
 sst_image_processing/tmp/*
