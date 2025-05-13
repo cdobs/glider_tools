@@ -6,17 +6,17 @@
     glider positions on them.
 """
 import config
-from matplotlib import image
-from matplotlib import pyplot as plt
-import datetime
-import glob
+from deployed_gliders import deployed_gliders
+
 import os
 import re
+import glob
+import datetime
 import requests
-from bs4 import *
-from urllib.parse import urljoin, urlparse
-from deployed_gliders import deployed_gliders
+import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
@@ -207,9 +207,10 @@ def parse_log(log_file):
     :param local_dir: local directory to store the DS logs
     :return: the gps fix (string)
     """
-    fh = open(log_file).read()
-    gps_fix = re.findall('GPS Location:.+? (.+?) m', fh)[-1]
-    return(gps_fix)
+    with open(log_file, 'r') as fh:
+        content = fh.read()
+    gps_fix = re.findall(r'GPS Location:.+? (.+?) m', content)[-1]
+    return gps_fix
 
 def get_posit(glider, ref_des, deployment, logs_dir, posit_date="most_recent"):
     """
