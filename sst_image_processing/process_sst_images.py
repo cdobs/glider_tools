@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import imageio
+import imageio.v2 as imageio
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
@@ -294,6 +294,24 @@ def create_gif_from_images(image_dir, gif_path, duration=0.5):
     imageio.mimsave(gif_path, images, duration=duration)
     print(f"GIF created at: {gif_path}")
 
+def create_mp4_from_images(image_dir, video_path, fps=2):
+    image_files = sorted(
+        [os.path.join(image_dir, f) for f in os.listdir(image_dir)
+         if f.lower().endswith('.png') and "_Large" in f],
+        key=os.path.getmtime
+    )
+
+    if not image_files:
+        print("No images found to create a video.")
+        return
+
+    writer = imageio.get_writer(video_path, fps=fps, codec='libx264', quality=8)
+    for image_file in image_files:
+        writer.append_data(imageio.imread(image_file))
+    writer.close()
+    print(f"Video created at: {video_path}")
+
+
 def main(argv=None):
     """
     -Validates the URL where the SST images are located and
@@ -313,7 +331,7 @@ def main(argv=None):
 
     # Clean previously processed images out of glider directories
     for i, glider in enumerate(gliders):
-        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
+        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
         glider_files = glob.glob(glider_dir+'/*')
         for file in glider_files:
             os.remove(file)
@@ -403,8 +421,9 @@ def main(argv=None):
     for i, glider in enumerate(gliders):
         science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
         sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
-        gif_output_path = os.path.join(science_dir, 'sst_animation.gif')
-        create_gif_from_images(sst_img_dir, gif_output_path, duration=300)
+        mp4_name = f"{ref_designators[i]}-{deployments[i]}-SST.mp4"
+        mp4_output_path = os.path.join(science_dir, mp4_name)
+        create_mp4_from_images(sst_img_dir, mp4_output_path, fps=2)
 
 
 
