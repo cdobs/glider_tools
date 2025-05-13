@@ -261,16 +261,6 @@ def main(argv=None):
     # gliders to process
     gliders, ref_designators, deployments = get_glider_names(deployed_gliders)
 
-<<<<<<< Updated upstream
-=======
-    # Clean previously processed images out of glider directories
-    for i, glider in enumerate(gliders):
-        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
-        glider_sst_files = glob.glob(glider_dir+'/*')
-        for file in glider_sst_files:
-            os.remove(file)
-
->>>>>>> Stashed changes
     # Clean previously processed images out of the local directory
     local_files = glob.glob(config.LOCAL_DIR+'images/*.*')
     for file in local_files:
