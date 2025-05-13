@@ -11,22 +11,22 @@ from deployed_gliders import deployed_gliders
 import os
 import re
 import glob
-import datetime
+from datetime import datetime, timedelta
 import requests
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import imageio
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
 sst_image_type = 'hourly'
 # number of days to process
 num_days = 1
-images_per_day = 3
 
 # Get remote directory
-current_year = datetime.datetime.now().year
+current_year = datetime.now().year
 remote_url = f"https://marine.rutgers.edu/cool/regions/capehat/sst/noaa/{current_year}/img/"
 
 def get_glider_names(deployed_gliders):
@@ -74,26 +74,31 @@ def get_images(url, ext='.jpg'):
 
     return image_urls
 
-def cull_images(images, num_days):
+def cull_images(images, num_hours=24):
     """
-    Culls a list of images down based on date, determined by the
-     number of days specified as a parameter
+    Culls a list of images down to the most recent `num_hours` images.
 
-    :param images: A list of images to be culled
-    :param num_days: The number of days of images to include in the culled list
-    :return: a list of images that were culled
+    :param images: A list of image filenames or URLs
+    :param num_hours: The number of recent images to keep (default: 24)
+    :return: A list of the most recent `num_hours` images
     """
-    culled_images = []
-    for i in range(0, num_days):
-        today = datetime.date.today() - datetime.timedelta(days = i)
-        year = str(today.year)[2:4]
-        month = str(today.month).zfill(2)
-        day = str(today.day).zfill(2)
-        image_date_string = year+month+day
-        temp_images = [x for x in images if image_date_string in x]
-        culled_images = culled_images + temp_images
+    # Sort images by the datetime encoded in their filename
+    def extract_timestamp(img):
+        match = re.search(r'(\d{6})\.(\d{1,3})\.(\d{4})', img)
+        if match:
+            date_part, hourish, minsec = match.groups()
+            try:
+                hour = hourish.zfill(2)[:2]
+                minute = minsec[:2]
+                second = minsec[2:].zfill(2)
+                timestamp_str = f"{date_part}{hour}{minute}{second}"
+                return datetime.strptime(timestamp_str, "%y%m%d%H%M%S")
+            except:
+                return datetime.min
+        return datetime.min
 
-    return(culled_images)
+    images_sorted = sorted(images, key=extract_timestamp)
+    return images_sorted[-num_hours:]
 
 def download_images(remote_url, images, local_url, sst_image_type):
     """
@@ -110,7 +115,6 @@ def download_images(remote_url, images, local_url, sst_image_type):
                 image_name = image.split("/")[-1]
                 image_url = remote_url+image_name
                 img_regx = re.compile(r'n')
-                print(img_regx)
             elif sst_image_type == 'hourly':
                 image_name = image.split("/")[-1]
                 image_url = remote_url+image_name
@@ -130,12 +134,16 @@ def parse_image_name(image_name):
     :param image_name: image name to be parsed
     :return: a list of the image name components
     """
-    image_components = image_name.split(".")[0].split("/")[-1]
-    image_year = image_components[0:2]
-    image_month = image_components[2:4]
-    image_day = image_components[4:6]
+    image_filename = os.path.basename(urlparse(image_name).path)
+    image_filename_components = image_filename.split(".")
+    image_year = image_filename_components[0][0:2]
+    image_month = image_filename_components[0][2:4]
+    image_day = image_filename_components[0][4:6]
 
-    image_name_components = [image_year, image_month, image_day]
+    image_hour = image_filename_components[2][0:2]
+
+    image_name_components = [image_year, image_month, image_day, image_hour]
+
     return(image_name_components)
 
 def get_sst_image_config(sst_image_type):
@@ -214,35 +222,77 @@ def parse_log(log_file):
 
 def get_posit(glider, ref_des, deployment, logs_dir, posit_date="most_recent"):
     """
-    Aggregates all log files or a specified glider and uses the parse_log
-     function to extract a GPS position for a specified date.
+    Aggregates all log files for a specified glider and uses the parse_log
+    function to extract a GPS position for a specified date.
 
     :param glider: glider to get a GPS position for
-    :param local_dir: local directory where the DS logs are stored
-    :param posit_date: date for which to extract a gps position
+    :param ref_des: reference designator (e.g., CP05MOAS-GL564)
+    :param deployment: deployment name (e.g., D00001)
+    :param logs_dir: local directory where the logs are stored
+    :param posit_date: date for which to extract a GPS position, in format '250513T12' (YYMMDDTHH)
     :return: the gps fix (string)
     """
-    log_files = [os.path.basename(x) for x in glob.glob(logs_dir+"/"+ref_des+'/'+deployment+'/logs/*.log')]
-    log_files.sort(key=lambda log: re.findall(r"[0-9]{8}T[0-9]{6}", log))
+    log_path = os.path.join(logs_dir, ref_des, deployment, 'logs', '*.log')
+    log_files = [os.path.basename(x) for x in glob.glob(log_path)]
+
+    # Extract timestamps from log filenames
+    log_timestamps = []
+    for log in log_files:
+        match = re.search(r"(\d{8}T\d{6})", log)
+        if match:
+            ts_str = match.group(1)
+            ts_dt = datetime.strptime(ts_str, "%Y%m%dT%H%M%S")
+            log_timestamps.append((log, ts_dt))
+
+    if not log_timestamps:
+        raise ValueError("No valid log timestamps found in filenames.")
 
     if posit_date == "most_recent":
-        most_recent_log = log_files[-1]
-        #gps_fix = parse_log(local_dir+"/ds_logs/"+glider+"/"+most_recent_log)
-        gps_fix = parse_log(logs_dir+"/"+ref_des+"/"+deployment+"/logs/"+most_recent_log)
+        # Sort by datetime and get the most recent
+        most_recent_log = max(log_timestamps, key=lambda x: x[1])[0]
+        gps_fix = parse_log(os.path.join(logs_dir, ref_des, deployment, 'logs', most_recent_log))
     else:
-        culled_logs = [log for log in log_files if posit_date in log]
-        most_recent_log = culled_logs[0]
-        gps_fix = parse_log(logs_dir+"/"+ref_des+"/"+deployment+"/logs/"+most_recent_log)
+        # Convert posit_date (e.g., '250513T12') into datetime object
+        try:
+            posit_dt = datetime.strptime(posit_date, "%y%m%dT%H")
+        except ValueError:
+            raise ValueError(f"Invalid posit_date format: {posit_date}. Expected format: 'YYMMDDTHH'")
+
+        # Find the log file with the timestamp closest to posit_date
+        closest_log = min(log_timestamps, key=lambda x: abs(x[1] - posit_dt))[0]
+        gps_fix = parse_log(os.path.join(logs_dir, ref_des, deployment, 'logs', closest_log))
 
         # Skip a bad position and find the next good one
         i = 0
-        while "696969" in gps_fix and i != len(culled_logs):
-            print(gps_fix)
-            most_recent_log = culled_logs[i]
-            gps_fix = parse_log(local_dir+"/ds_logs/"+glider+"/"+most_recent_log)
+        sorted_by_proximity = sorted(log_timestamps, key=lambda x: abs(x[1] - posit_dt))
+        while "696969" in gps_fix and i < len(sorted_by_proximity):
+            log_candidate = sorted_by_proximity[i][0]
+            gps_fix = parse_log(os.path.join(logs_dir, ref_des, deployment, 'logs', log_candidate))
             i += 1
 
-    return(gps_fix)
+    return gps_fix
+
+
+def create_gif_from_images(image_dir, gif_path, duration=0.5):
+    """
+    Creates a GIF from all SST images in the directory using imageio.
+
+    :param image_dir: Path to directory containing SST images.
+    :param gif_path: Full output path for the gif.
+    :param duration: Duration (in seconds) each frame is shown in the GIF.
+    """
+    image_files = sorted(
+        [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.lower().endswith('.png') and "_Large" in f],
+        key=os.path.getmtime
+    )
+
+    if not image_files:
+        print("No images found to create a GIF.")
+        return
+
+    images = [imageio.imread(f) for f in image_files]
+    imageio.mimsave(gif_path, images, duration=duration)
+    print(f"GIF created at: {gif_path}")
 
 def main(argv=None):
     """
@@ -261,16 +311,23 @@ def main(argv=None):
     # gliders to process
     gliders, ref_designators, deployments = get_glider_names(deployed_gliders)
 
+    # Clean previously processed images out of glider directories
+    for i, glider in enumerate(gliders):
+        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        glider_files = glob.glob(glider_dir+'/*')
+        for file in glider_files:
+            os.remove(file)
+
     # Clean previously processed images out of the local directory
     local_files = glob.glob(config.LOCAL_DIR+'images/*.*')
     for file in local_files:
         os.remove(file)
 
     # Validate the remote URL and download the images
-    validate_url(remote_url)
-    images = get_images(remote_url, 'jpg')
-    images = cull_images(images, num_days)
-    download_images(remote_url, images, config.IMAGE_DIR, sst_image_type)
+    if validate_url(remote_url):
+        images = get_images(remote_url, 'jpg')
+        images = cull_images(images, num_hours=24)
+        download_images(remote_url, images, config.IMAGE_DIR, sst_image_type)
 
     # calculate map coordinates and scale
     sst_image_config = get_sst_image_config('hourly')
@@ -281,15 +338,17 @@ def main(argv=None):
     pixels_per_lat_degrees = map_height / (sst_image_config['max_lat'] - sst_image_config['min_lat'])
 
     # Get the most recent 3 images to process
-    num_images = num_days * images_per_day
+    num_images = num_days * 24
     local_images = sorted(glob.glob(config.IMAGE_DIR + "/*.jpg"))[-num_images:]
 
     # process the images
     for img in local_images:
+        is_last = img == local_images[-1]
         print(f"Processing image {img} for gliders {', '.join(gliders)}")
         # get the date for each image
         image_date = parse_image_name(img)
-        image_date_string = image_date[0]+image_date[1]+image_date[2]
+        image_hour = image_date[3]
+        image_date_string = image_date[0]+image_date[1]+image_date[2]+"T"+image_hour
 
         # read in the image data in Python figure
         fig = plt.figure()
@@ -326,6 +385,7 @@ def main(argv=None):
         # Save the figure
         plt.axis('off')
 
+        sst_name = os.path.splitext(os.path.basename(urlparse(img).path))[0]
         for i, glider in enumerate(gliders):
             sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
             science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
