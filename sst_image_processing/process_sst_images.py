@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import imageio.v2 as imageio
+import imageio
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
