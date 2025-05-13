@@ -387,22 +387,24 @@ def main(argv=None):
 
         sst_name = os.path.splitext(os.path.basename(urlparse(img).path))[0]
         for i, glider in enumerate(gliders):
+            sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
             science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
             image_name = f"{ref_designators[i]}-{deployments[i]}_{sst_name}"
-            plt.savefig(os.path.join(science_dir, f"{image_name}.png"), bbox_inches='tight')
-            plt.savefig(os.path.join(science_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(sst_img_dir, f"{image_name}.png"), bbox_inches='tight')
+            plt.savefig(os.path.join(sst_img_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
 
             if is_last:
                 image_name = f"{ref_designators[i]}-{deployments[i]}-SST"
                 plt.savefig(os.path.join(science_dir, f"{image_name}.png"), bbox_inches='tight')
                 plt.savefig(os.path.join(science_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
-                
+
         plt.close()
 
     for i, glider in enumerate(gliders):
         science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
         gif_output_path = os.path.join(science_dir, 'sst_animation.gif')
-        create_gif_from_images(science_dir, gif_output_path, duration=300)
+        create_gif_from_images(sst_img_dir, gif_output_path, duration=300)
 
 
 
