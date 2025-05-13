@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import imageio.v2 as imageio
+import imageio
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
@@ -331,7 +331,7 @@ def main(argv=None):
 
     # Clean previously processed images out of glider directories
     for i, glider in enumerate(gliders):
-        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
         glider_files = glob.glob(glider_dir+'/*')
         for file in glider_files:
             os.remove(file)
