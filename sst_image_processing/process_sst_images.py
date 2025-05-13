@@ -261,6 +261,16 @@ def main(argv=None):
     # gliders to process
     gliders, ref_designators, deployments = get_glider_names(deployed_gliders)
 
+<<<<<<< Updated upstream
+=======
+    # Clean previously processed images out of glider directories
+    for i, glider in enumerate(gliders):
+        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        glider_sst_files = glob.glob(glider_dir+'/*')
+        for file in glider_sst_files:
+            os.remove(file)
+
+>>>>>>> Stashed changes
     # Clean previously processed images out of the local directory
     local_files = glob.glob(config.LOCAL_DIR+'images/*.*')
     for file in local_files:
@@ -327,12 +337,26 @@ def main(argv=None):
         plt.axis('off')
 
         for i, glider in enumerate(gliders):
-            image_name = f"{ref_designators[i]}-{deployments[i]}-SST"
+            sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
             science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+            image_name = f"{ref_designators[i]}-{deployments[i]}_{sst_name}"
+            plt.savefig(os.path.join(sst_img_dir, f"{image_name}.png"), bbox_inches='tight')
+            plt.savefig(os.path.join(sst_img_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
 
-            plt.savefig(os.path.join(science_dir, f"{image_name}.png"), bbox_inches='tight')
-            plt.savefig(os.path.join(science_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
+            if is_last:
+                image_name = f"{ref_designators[i]}-{deployments[i]}-SST"
+                plt.savefig(os.path.join(science_dir, f"{image_name}.png"), bbox_inches='tight')
+                plt.savefig(os.path.join(science_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
+
         plt.close()
+
+    for i, glider in enumerate(gliders):
+        science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
+        gif_output_path = os.path.join(science_dir, 'sst_animation.gif')
+        create_gif_from_images(sst_img_dir, gif_output_path, duration=300)
+
+
 
 if __name__ == '__main__':
     main()
