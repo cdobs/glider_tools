@@ -313,7 +313,7 @@ def main(argv=None):
 
     # Clean previously processed images out of glider directories
     for i, glider in enumerate(gliders):
-        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
+        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
         glider_files = glob.glob(glider_dir+'/*')
         for file in glider_files:
             os.remove(file)
