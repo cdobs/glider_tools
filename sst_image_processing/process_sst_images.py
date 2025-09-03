@@ -76,29 +76,43 @@ def get_images(url, ext='.jpg'):
 
 def cull_images(images, num_hours=24):
     """
-    Culls a list of images down to the most recent `num_hours` images.
+    Culls a list of images down to those within the most recent `num_hours`.
 
     :param images: A list of image filenames or URLs
-    :param num_hours: The number of recent images to keep (default: 24)
-    :return: A list of the most recent `num_hours` images
+    :param num_hours: The number of hours to keep (default: 24)
+    :return: A list of images from within the last `num_hours`
     """
-    # Sort images by the datetime encoded in their filename
     def extract_timestamp(img):
         match = re.search(r'(\d{6})\.(\d{1,3})\.(\d{4})', img)
         if match:
-            date_part, hourish, minsec = match.groups()
+            date_part, _, hhmm = match.groups()
             try:
-                hour = hourish.zfill(2)[:2]
-                minute = minsec[:2]
-                second = minsec[2:].zfill(2)
-                timestamp_str = f"{date_part}{hour}{minute}{second}"
-                return datetime.strptime(timestamp_str, "%y%m%d%H%M%S")
-            except:
-                return datetime.min
-        return datetime.min
+                timestamp_str = f"{date_part}{hhmm}"  # yymmddHHMM
+                return datetime.strptime(timestamp_str, "%y%m%d%H%M")
+            except Exception:
+                return None
+        return None
 
-    images_sorted = sorted(images, key=extract_timestamp)
-    return images_sorted[-num_hours:]
+    # Pair each image with its timestamp
+    images_with_times = [(img, extract_timestamp(img)) for img in images]
+    # Filter out any that failed to parse
+    images_with_times = [(img, ts) for img, ts in images_with_times if ts is not None]
+
+    if not images_with_times:
+        return []
+
+    # Find the most recent timestamp
+    latest_time = max(ts for _, ts in images_with_times)
+    cutoff_time = latest_time - timedelta(hours=num_hours)
+
+    # Keep only those within the time window
+    culled = [img for img, ts in images_with_times if ts >= cutoff_time]
+
+    # Sort by timestamp to keep chronological order
+    culled_sorted = sorted(culled, key=lambda img: extract_timestamp(img))
+
+    return culled_sorted
+
 
 def download_images(remote_url, images, local_url, sst_image_type):
     """
@@ -345,6 +359,7 @@ def main(argv=None):
     if validate_url(remote_url):
         images = get_images(remote_url, 'jpg')
         images = cull_images(images, num_hours=24)
+        print(images)
         download_images(remote_url, images, config.IMAGE_DIR, sst_image_type)
 
     # calculate map coordinates and scale
