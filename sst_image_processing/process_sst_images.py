@@ -18,6 +18,8 @@ import matplotlib.image as mpimg
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import imageio
+import pandas as pd
+from pathlib import Path
 
 # Configuration
 # Type of SST images to process (Options are composite or hourly)
@@ -29,25 +31,22 @@ num_days = 1
 current_year = datetime.now().year
 remote_url = f"https://marine.rutgers.edu/cool/regions/capehat/sst/noaa/{current_year}/img/"
 
-def get_glider_names(deployed_gliders):
+def get_glider_names(deployed_gliders, array='Pioneer MAB'):
     """
-    Gets glider name and other metadata for deployed gliders
+    Gets glider name and other metadata for deployed gliders.
 
-    :param url: deployed glider configurations
+    :param deployed_gliders: pandas DataFrame containing deployed glider configurations
+    :param array: array name to filter
     :return: glider_names, ref_designators, and glider_deployments
-
     """
-    glider_names = []
-    glider_deployments = []
-    ref_designators = []
 
-    for ref_des, deployments in deployed_gliders['Pioneer MAB'].items():
-        for deployment_id, deployment_data in deployments.items():
-            glider_names.append(deployment_data['glider_name'])
-            glider_deployments.append(deployment_id)
-            ref_designators.append(deployment_data['ref_des'])
+    gliders = deployed_gliders[deployed_gliders['array'] == array]
 
-    return(glider_names, ref_designators, glider_deployments)
+    glider_names = gliders['glider_name'].tolist()
+    ref_designators = gliders['ref_des'].tolist()
+    glider_deployments = gliders['deployment'].tolist()
+
+    return glider_names, ref_designators, glider_deployments
 
 def validate_url(url):
     """
@@ -328,118 +327,243 @@ def create_mp4_from_images(image_dir, video_path, fps=2):
 
 def main(argv=None):
     """
-    -Validates the URL where the SST images are located and
-     downloads those images to a local directory
-    -Rsyncs the glider's dockserver log files to a local directory
-      so that the GPS positions can be parsed
-    -Constructs the geographic grid to be overlaid on the SST images
-    -Aggregates the SST images to be processed from a local directory
-    -Processes each SST image by calculating the geographic grid, converts
-     and plots each glider's GPS position on the SST image
+    - Validates the URL where the SST images are located and
+      downloads those images to a local directory
+    - Rsyncs the glider dockserver log files to a local directory
+      so GPS positions can be parsed
+    - Constructs the geographic grid to be overlaid on SST images
+    - Aggregates SST images to be processed from a local directory
+    - Processes each SST image by calculating the geographic grid,
+      converting, and plotting each glider's GPS position on the SST image
 
     :return: none
     """
 
-    # gliders to process
-    gliders, ref_designators, deployments = get_glider_names(deployed_gliders)
+    # Load deployed glider metadata
+    BASE_DIR = Path(__file__).resolve().parent
+    deployed_gliders = pd.read_csv(BASE_DIR / "deployed_gliders.csv")
+    deployed_gliders = deployed_gliders[~deployed_gliders['recovered']]
 
-    # Clean previously processed images out of glider directories
-    for i, glider in enumerate(gliders):
-        glider_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
-        glider_files = glob.glob(glider_dir+'/*')
-        for file in glider_files:
+    # Get gliders to process
+    glider_names, ref_designators, glider_deployments = get_glider_names(
+        deployed_gliders,
+        array='Pioneer MAB'
+    )
+
+    # Clean previously processed SST images from glider directories
+    for ref_des, deployment in zip(ref_designators, glider_deployments):
+        sst_img_dir = os.path.join(
+            config.SAVE_DIR,
+            ref_des,
+            deployment,
+            "sst"
+        )
+
+        for file in glob.glob(os.path.join(sst_img_dir, "*")):
+            if os.path.isfile(file):
+                os.remove(file)
+
+    # Clean previously downloaded SST images
+    for file in glob.glob(os.path.join(config.LOCAL_DIR, "images", "*.*")):
+        if os.path.isfile(file):
             os.remove(file)
 
-    # Clean previously processed images out of the local directory
-    local_files = glob.glob(config.LOCAL_DIR+'images/*.*')
-    for file in local_files:
-        os.remove(file)
-
-    # Validate the remote URL and download the images
+    # Validate remote URL and download images
     if validate_url(remote_url):
         images = get_images(remote_url, 'jpg')
         images = cull_images(images, num_hours=24)
         print(images)
         download_images(remote_url, images, config.IMAGE_DIR, sst_image_type)
 
-    # calculate map coordinates and scale
+    # Calculate map coordinates and pixel scale
     sst_image_config = get_sst_image_config('hourly')
-    map_width = sst_image_config['TOP_RIGHT'][0] - sst_image_config['TOP_LEFT'][0]
-    map_height = sst_image_config['BOTTOM_LEFT'][1]-sst_image_config['TOP_LEFT'][1]
 
-    pixels_per_lon_degrees = map_width / (sst_image_config['max_lon'] - sst_image_config['min_lon'])
-    pixels_per_lat_degrees = map_height / (sst_image_config['max_lat'] - sst_image_config['min_lat'])
+    map_width = (
+        sst_image_config['TOP_RIGHT'][0] -
+        sst_image_config['TOP_LEFT'][0]
+    )
 
-    # Get the most recent 3 images to process
+    map_height = (
+        sst_image_config['BOTTOM_LEFT'][1] -
+        sst_image_config['TOP_LEFT'][1]
+    )
+
+    pixels_per_lon_degrees = (
+        map_width /
+        (sst_image_config['max_lon'] - sst_image_config['min_lon'])
+    )
+
+    pixels_per_lat_degrees = (
+        map_height /
+        (sst_image_config['max_lat'] - sst_image_config['min_lat'])
+    )
+
+    # Get most recent images to process
     num_images = num_days * 24
-    local_images = sorted(glob.glob(config.IMAGE_DIR + "/*.jpg"))[-num_images:]
+    local_images = sorted(
+        glob.glob(os.path.join(config.IMAGE_DIR, "*.jpg"))
+    )[-num_images:]
 
-    # process the images
+    # Process SST images
     for img in local_images:
         is_last = img == local_images[-1]
-        print(f"Processing image {img} for gliders {', '.join(gliders)}")
-        # get the date for each image
-        image_date = parse_image_name(img)
-        image_hour = image_date[3]
-        image_date_string = image_date[0]+image_date[1]+image_date[2]+"T"+image_hour
 
-        # read in the image data in Python figure
+        print(
+            f"Processing image {img} for gliders "
+            f"{', '.join(glider_names)}"
+        )
+
+        image_date = parse_image_name(img)
+        image_date_string = (
+            image_date[0] +
+            image_date[1] +
+            image_date[2] +
+            "T" +
+            image_date[3]
+        )
+
         fig = plt.figure()
         data = mpimg.imread(img)
         plt.imshow(data)
 
-        # Skip over the images that are not on the correct grid
+        # Skip images that are not the expected size
         if data.shape[0] < 800:
+            plt.close()
             continue
 
-        # Get each glider position for this image and plot it
-        for i, glider in enumerate(gliders):
-            deployment = deployments[i]
-            ref_des = ref_designators[i]
+        # Plot each glider position
+        for glider, ref_des, deployment in zip(
+            glider_names,
+            ref_designators,
+            glider_deployments
+        ):
+
             try:
-                glider_posit = get_posit(glider, ref_des, deployment, config.LOGS_DIR, posit_date=image_date_string)
-            except:
-                print("Glider " + glider + " does not have a position on " + image_date_string)
+                glider_posit = get_posit(
+                    glider,
+                    ref_des,
+                    deployment,
+                    config.LOGS_DIR,
+                    posit_date=image_date_string
+                )
+
+            except Exception:
+                print(
+                    f"Glider {glider} does not have a position "
+                    f"on {image_date_string}"
+                )
                 continue
 
-            posit_y = glider_posit.split(" -")[0]
-            posit_x = glider_posit.split(" -")[1]
-            y_decimal = int(posit_y[0:2])+float(posit_y[2:8])/60
-            x_decimal = (int(posit_x[0:2])+float(posit_x[2:8])/60)*-1
+            posit_y, posit_x = glider_posit.split(" -")
 
-            # convert lat/lon to pixel locations
-            py = convert_y(sst_image_config['TOP_LEFT'][1], sst_image_config['max_lat'], pixels_per_lat_degrees, y_decimal)
-            px = convert_x(sst_image_config['TOP_LEFT'][0], sst_image_config['max_lon'], pixels_per_lon_degrees, x_decimal)
+            y_decimal = (
+                int(posit_y[0:2]) +
+                float(posit_y[2:8]) / 60
+            )
 
-            # Plot the positions
+            x_decimal = (
+                int(posit_x[0:2]) +
+                float(posit_x[2:8]) / 60
+            ) * -1
+
+            py = convert_y(
+                sst_image_config['TOP_LEFT'][1],
+                sst_image_config['max_lat'],
+                pixels_per_lat_degrees,
+                y_decimal
+            )
+
+            px = convert_x(
+                sst_image_config['TOP_LEFT'][0],
+                sst_image_config['max_lon'],
+                pixels_per_lon_degrees,
+                x_decimal
+            )
+
             plt.plot(px, py, marker='x', color="black")
-            plt.annotate(glider,  xy=(px, py), fontsize=2.5)
+            plt.annotate(glider, xy=(px, py), fontsize=2.5)
 
-        # Save the figure
         plt.axis('off')
 
-        sst_name = os.path.splitext(os.path.basename(urlparse(img).path))[0]
-        for i, glider in enumerate(gliders):
-            sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
-            science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
-            image_name = f"{ref_designators[i]}-{deployments[i]}_{sst_name}"
-            plt.savefig(os.path.join(sst_img_dir, f"{image_name}.png"), bbox_inches='tight')
-            plt.savefig(os.path.join(sst_img_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
+        sst_name = os.path.splitext(os.path.basename(img))[0]
+
+        # Save SST images
+        for ref_des, deployment in zip(
+            ref_designators,
+            glider_deployments
+        ):
+
+            sst_img_dir = os.path.join(
+                config.SAVE_DIR,
+                ref_des,
+                deployment,
+                "sst"
+            )
+
+            science_dir = os.path.join(
+                config.SAVE_DIR,
+                ref_des,
+                deployment,
+                "science"
+            )
+
+            image_name = f"{ref_des}-{deployment}_{sst_name}"
+
+            plt.savefig(
+                os.path.join(sst_img_dir, f"{image_name}.png"),
+                bbox_inches='tight'
+            )
+
+            plt.savefig(
+                os.path.join(sst_img_dir, f"{image_name}_Large.png"),
+                dpi=300,
+                bbox_inches='tight'
+            )
 
             if is_last:
-                image_name = f"{ref_designators[i]}-{deployments[i]}-SST"
-                plt.savefig(os.path.join(science_dir, f"{image_name}.png"), bbox_inches='tight')
-                plt.savefig(os.path.join(science_dir, f"{image_name}_Large.png"), dpi=300, bbox_inches='tight')
+                image_name = f"{ref_des}-{deployment}-SST"
+
+                plt.savefig(
+                    os.path.join(science_dir, f"{image_name}.png"),
+                    bbox_inches='tight'
+                )
+
+                plt.savefig(
+                    os.path.join(science_dir, f"{image_name}_Large.png"),
+                    dpi=300,
+                    bbox_inches='tight'
+                )
 
         plt.close()
 
-    for i, glider in enumerate(gliders):
-        science_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "science")
-        sst_img_dir = os.path.join(config.SAVE_DIR, ref_designators[i], deployments[i], "sst")
-        mp4_name = f"{ref_designators[i]}-{deployments[i]}-SST.mp4"
-        mp4_output_path = os.path.join(science_dir, mp4_name)
-        create_mp4_from_images(sst_img_dir, mp4_output_path, fps=2)
+    # Create SST movies
+    for ref_des, deployment in zip(
+        ref_designators,
+        glider_deployments
+    ):
 
+        science_dir = os.path.join(
+            config.SAVE_DIR,
+            ref_des,
+            deployment,
+            "science"
+        )
+
+        sst_img_dir = os.path.join(
+            config.SAVE_DIR,
+            ref_des,
+            deployment,
+            "sst"
+        )
+
+        mp4_name = f"{ref_des}-{deployment}-SST.mp4"
+        mp4_output_path = os.path.join(science_dir, mp4_name)
+
+        create_mp4_from_images(
+            sst_img_dir,
+            mp4_output_path,
+            fps=2
+        )
 
 
 if __name__ == '__main__':
